@@ -197,6 +197,13 @@ def load_config():
         "ntfy_token", ""
     )
 
+    # LLM配置
+    llm_config = notification.get("llm", {})
+    config["LLM_ENABLED"] = os.environ.get("LLM_ENABLED", "").strip().lower() in ("true", "1") \
+        if os.environ.get("LLM_ENABLED", "").strip() else llm_config.get("enabled", False)
+    config["LLM_API_URL"] = os.environ.get("LLM_API_URL", "").strip() or llm_config.get("api_url", "")
+    config["LLM_API_TOKEN"] = os.environ.get("LLM_API_TOKEN", "").strip() or llm_config.get("api_token", "")
+
     # Bark配置
     config["BARK_URL"] = os.environ.get("BARK_URL", "").strip() or webhooks.get(
         "bark_url", ""
@@ -3363,6 +3370,133 @@ def split_content_into_batches(
     return batches
 
 
+def translate_and_summarize_with_llm(report_data: Dict, report_type: str) -> Optional[str]:
+    """使用LLM将中文新闻翻译并总结成英文"""
+    if not CONFIG.get("LLM_ENABLED", False):
+        return None
+    
+    api_url = CONFIG.get("LLM_API_URL", "")
+    api_token = CONFIG.get("LLM_API_TOKEN", "")
+    
+    if not api_url or not api_token:
+        print("⚠️ LLM功能已启用但未配置API URL或Token，跳过翻译")
+        return None
+    
+    try:
+        # 构建中文新闻内容
+        chinese_content = []
+        
+        # 添加统计信息
+        total_titles = sum(len(stat["titles"]) for stat in report_data["stats"] if stat["count"] > 0)
+        chinese_content.append(f"共有 {total_titles} 条新闻")
+        chinese_content.append("")
+        
+        # 添加每个关键词组的新闻
+        for i, stat in enumerate(report_data["stats"], 1):
+            if stat["count"] <= 0:
+                continue
+            
+            word = stat["word"]
+            count = stat["count"]
+            chinese_content.append(f"[{i}] 关键词: {word} ({count}条新闻)")
+            chinese_content.append("")
+            
+            # 添加该关键词下的所有新闻标题
+            for j, title_data in enumerate(stat["titles"], 1):
+                title = title_data["title"]
+                source = title_data["source_name"]
+                chinese_content.append(f"  {j}. [{source}] {title}")
+            
+            chinese_content.append("")
+        
+        # 添加新增新闻（如果有）
+        if report_data.get("new_titles") and report_data["new_titles"]:
+            chinese_content.append("=== 新增热点 ===")
+            for source_data in report_data["new_titles"]:
+                source_name = source_data["source_name"]
+                chinese_content.append(f"\n{source_name}:")
+                for title_data in source_data["titles"]:
+                    chinese_content.append(f"  - {title_data['title']}")
+        
+        chinese_text = "\n".join(chinese_content)
+        
+        # 构建提示词
+        system_instruction = """You are a friendly news summarizer. Your task is to:
+1. Translate Chinese news into English
+2. Summarize the main topics and trends
+3. Present it in a casual, conversational style - as if you're telling a friend about the latest news
+4. Keep it concise but informative
+5. Group related news together when possible
+6. Use emojis occasionally to make it more engaging
+
+Format your response as a friendly message, not as a formal report. Start with a brief overview, then summarize the key topics."""
+
+        user_prompt = f"""Here are the latest Chinese news headlines grouped by keywords:
+
+{chinese_text}
+
+Please translate and summarize this into English in a friendly, conversational way. Make it feel like you're messaging a friend about the latest news highlights."""
+
+        # 构建API请求（Google Gemini格式）
+        request_body = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": f"{system_instruction}\n\n{user_prompt}"
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_token
+        }
+        
+        print(f"🤖 正在使用LLM翻译和总结新闻...")
+        
+        response = requests.post(
+            api_url,
+            json=request_body,
+            headers=headers,
+            timeout=60
+        )
+        
+        if not response.ok:
+            error_content = response.text
+            print(f"❌ LLM API请求失败: {response.status_code}")
+            print(f"错误详情: {error_content}")
+            return None
+        
+        response_data = response.json()
+        
+        # 从Gemini响应中提取文本
+        if "candidates" in response_data and len(response_data["candidates"]) > 0:
+            candidate = response_data["candidates"][0]
+            if "content" in candidate and "parts" in candidate["content"]:
+                parts = candidate["content"]["parts"]
+                if len(parts) > 0 and "text" in parts[0]:
+                    translated_text = parts[0]["text"]
+                    print(f"✅ LLM翻译完成，长度: {len(translated_text)} 字符")
+                    return translated_text
+        
+        print(f"⚠️ 无法从LLM响应中提取文本")
+        print(f"响应结构: {response_data.keys()}")
+        return None
+        
+    except requests.exceptions.Timeout:
+        print(f"❌ LLM API请求超时")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"❌ LLM API请求错误: {e}")
+        return None
+    except Exception as e:
+        print(f"❌ LLM翻译过程出错: {e}")
+        return None
+
+
 def send_to_notifications(
     stats: List[Dict],
     failed_ids: Optional[List] = None,
@@ -3398,6 +3532,15 @@ def send_to_notifications(
 
     report_data = prepare_report_data(stats, failed_ids, new_titles, id_to_name, mode)
 
+    # 尝试使用LLM翻译和总结
+    llm_translated_text = None
+    if CONFIG.get("LLM_ENABLED", False):
+        llm_translated_text = translate_and_summarize_with_llm(report_data, report_type)
+        if llm_translated_text:
+            print(f"✅ 将使用LLM翻译后的内容发送通知")
+        else:
+            print(f"⚠️ LLM翻译失败或未配置，将使用原始中文内容")
+
     feishu_url = CONFIG["FEISHU_WEBHOOK_URL"]
     dingtalk_url = CONFIG["DINGTALK_WEBHOOK_URL"]
     wework_url = CONFIG["WEWORK_WEBHOOK_URL"]
@@ -3415,6 +3558,54 @@ def send_to_notifications(
 
     update_info_to_send = update_info if CONFIG["SHOW_VERSION_UPDATE"] else None
 
+    # 如果有LLM翻译内容，使用简化的发送方式
+    if llm_translated_text:
+        # 添加报告类型和时间戳
+        now = get_beijing_time()
+        full_message = f"📰 {report_type}\n"
+        full_message += f"🕐 {now.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        full_message += llm_translated_text
+        
+        if update_info_to_send:
+            full_message += f"\n\n📢 Update available: v{update_info_to_send['remote_version']} (current: v{update_info_to_send['current_version']})"
+        
+        # 使用简化的发送函数发送LLM翻译内容
+        if feishu_url:
+            results["feishu"] = send_simple_text_to_feishu(feishu_url, full_message, proxy_url)
+        if dingtalk_url:
+            results["dingtalk"] = send_simple_text_to_dingtalk(dingtalk_url, full_message, proxy_url)
+        if wework_url:
+            results["wework"] = send_simple_text_to_wework(wework_url, full_message, proxy_url)
+        if telegram_token and telegram_chat_id:
+            results["telegram"] = send_simple_text_to_telegram(telegram_token, telegram_chat_id, full_message, proxy_url)
+        if ntfy_server_url and ntfy_topic:
+            results["ntfy"] = send_simple_text_to_ntfy(ntfy_server_url, ntfy_topic, ntfy_token, full_message, proxy_url)
+        if bark_url:
+            results["bark"] = send_simple_text_to_bark(bark_url, full_message, proxy_url)
+        # Email保持使用HTML文件
+        if email_from and email_password and email_to and html_file_path:
+            results["email"] = send_to_email(
+                email_from,
+                email_password,
+                email_to,
+                report_type,
+                html_file_path,
+                email_smtp_server,
+                email_smtp_port,
+            )
+        
+        # 如果成功发送了任何通知，且启用了每天只推一次，则记录推送
+        if (
+            CONFIG["PUSH_WINDOW"]["ENABLED"]
+            and CONFIG["PUSH_WINDOW"]["ONCE_PER_DAY"]
+            and any(results.values())
+        ):
+            push_manager = PushRecordManager()
+            push_manager.record_push(report_type)
+        
+        return results
+
+    # 原有的中文通知逻辑
     # 发送到飞书
     if feishu_url:
         results["feishu"] = send_to_feishu(
@@ -3494,6 +3685,165 @@ def send_to_notifications(
         push_manager.record_push(report_type)
 
     return results
+
+
+def send_simple_text_to_feishu(webhook_url: str, message: str, proxy_url: Optional[str] = None) -> bool:
+    """发送简单文本到飞书"""
+    headers = {"Content-Type": "application/json"}
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    
+    payload = {
+        "msg_type": "text",
+        "content": {
+            "text": message
+        },
+    }
+    
+    try:
+        response = requests.post(webhook_url, json=payload, headers=headers, proxies=proxies, timeout=10)
+        if response.ok:
+            print(f"✅ 飞书通知发送成功 (LLM翻译)")
+            return True
+        else:
+            print(f"❌ 飞书通知发送失败: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ 飞书通知发送异常: {e}")
+        return False
+
+
+def send_simple_text_to_dingtalk(webhook_url: str, message: str, proxy_url: Optional[str] = None) -> bool:
+    """发送简单文本到钉钉"""
+    headers = {"Content-Type": "application/json"}
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    
+    payload = {
+        "msgtype": "text",
+        "text": {
+            "content": message
+        },
+    }
+    
+    try:
+        response = requests.post(webhook_url, json=payload, headers=headers, proxies=proxies, timeout=10)
+        if response.ok:
+            print(f"✅ 钉钉通知发送成功 (LLM翻译)")
+            return True
+        else:
+            print(f"❌ 钉钉通知发送失败: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ 钉钉通知发送异常: {e}")
+        return False
+
+
+def send_simple_text_to_wework(webhook_url: str, message: str, proxy_url: Optional[str] = None) -> bool:
+    """发送简单文本到企业微信"""
+    headers = {"Content-Type": "application/json"}
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    
+    # 根据配置决定消息类型
+    msg_type = CONFIG.get("WEWORK_MSG_TYPE", "markdown")
+    
+    if msg_type == "text":
+        payload = {
+            "msgtype": "text",
+            "text": {
+                "content": message
+            },
+        }
+    else:
+        payload = {
+            "msgtype": "markdown",
+            "markdown": {
+                "content": message
+            },
+        }
+    
+    try:
+        response = requests.post(webhook_url, json=payload, headers=headers, proxies=proxies, timeout=10)
+        if response.ok:
+            print(f"✅ 企业微信通知发送成功 (LLM翻译)")
+            return True
+        else:
+            print(f"❌ 企业微信通知发送失败: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ 企业微信通知发送异常: {e}")
+        return False
+
+
+def send_simple_text_to_telegram(bot_token: str, chat_id: str, message: str, proxy_url: Optional[str] = None) -> bool:
+    """发送简单文本到Telegram"""
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    
+    try:
+        response = requests.post(url, json=payload, proxies=proxies, timeout=10)
+        if response.ok:
+            print(f"✅ Telegram通知发送成功 (LLM翻译)")
+            return True
+        else:
+            print(f"❌ Telegram通知发送失败: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Telegram通知发送异常: {e}")
+        return False
+
+
+def send_simple_text_to_ntfy(server_url: str, topic: str, token: str, message: str, proxy_url: Optional[str] = None) -> bool:
+    """发送简单文本到ntfy"""
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    url = f"{server_url}/{topic}"
+    
+    headers = {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Title": "TrendRadar News Summary",
+        "Priority": "default",
+        "Tags": "newspaper"
+    }
+    
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    
+    try:
+        response = requests.post(url, data=message.encode('utf-8'), headers=headers, proxies=proxies, timeout=10)
+        if response.ok:
+            print(f"✅ ntfy通知发送成功 (LLM翻译)")
+            return True
+        else:
+            print(f"❌ ntfy通知发送失败: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ ntfy通知发送异常: {e}")
+        return False
+
+
+def send_simple_text_to_bark(bark_url: str, message: str, proxy_url: Optional[str] = None) -> bool:
+    """发送简单文本到Bark"""
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    
+    # Bark URL 格式: https://api.day.app/your_device_key/title/body
+    # 我们将标题设为 "TrendRadar News"，内容为消息
+    url = f"{bark_url}/TrendRadar News/{message}"
+    
+    try:
+        response = requests.get(url, proxies=proxies, timeout=10)
+        if response.ok:
+            print(f"✅ Bark通知发送成功 (LLM翻译)")
+            return True
+        else:
+            print(f"❌ Bark通知发送失败: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Bark通知发送异常: {e}")
+        return False
 
 
 def send_to_feishu(

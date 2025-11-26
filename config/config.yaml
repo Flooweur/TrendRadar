@@ -40,6 +40,12 @@ notification:
   batch_send_interval: 3 # 批次发送间隔（秒）
   feishu_message_separator: "━━━━━━━━━━━━━━━━━━━" # feishu 消息分割线
 
+  # LLM翻译和摘要配置
+  llm:
+    enabled: false # 是否启用LLM翻译和摘要功能
+    api_url: "" # LLM API地址 (例如: https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent)
+    api_token: "" # LLM API密钥
+
   # 🕐 推送时间窗口控制（可选功能）
   # 用途：限制推送的时间范围，避免非工作时间打扰
   # 适用场景：
