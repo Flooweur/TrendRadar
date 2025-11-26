@@ -44,7 +44,6 @@ notification:
   llm:
     enabled: false # 是否启用LLM翻译和摘要功能
     api_url: "" # LLM API地址 (例如: https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent)
-    api_token: "" # LLM API密钥
 
   # 🕐 推送时间窗口控制（可选功能）
   # 用途：限制推送的时间范围，避免非工作时间打扰

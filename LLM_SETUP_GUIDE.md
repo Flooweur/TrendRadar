@@ -6,7 +6,7 @@ This feature allows the news aggregator to automatically translate Chinese news 
 
 - 🌐 **Automatic Translation**: Translates Chinese news headlines into English
 - 📝 **Smart Summarization**: Summarizes and groups related news topics
-- 💬 **Conversational Style**: Presents news as if you're messaging a friend
+- 📊 **Factual Reporting**: Presents news objectively and professionally
 - 🔄 **Seamless Integration**: Works with all existing notification platforms
 
 ## Configuration
@@ -23,16 +23,17 @@ notification:
   llm:
     enabled: true  # Set to true to enable LLM translation
     api_url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
-    api_token: "YOUR_API_KEY_HERE"  # Your Google Gemini API key
 ```
 
-### 2. For GitHub Actions
+**Note**: The API key is NOT stored in the config file for security. It comes from the `GEMINI_API_KEY` environment variable or GitHub secret.
+
+### 2. For GitHub Actions (Recommended)
 
 Add these secrets to your repository (`Settings` → `Secrets and variables` → `Actions`):
 
 - `LLM_ENABLED`: Set to `true`
 - `LLM_API_URL`: Your LLM API endpoint (e.g., Google Gemini API URL)
-- `LLM_API_TOKEN`: Your API key
+- `GEMINI_API_KEY`: Your Google Gemini API key
 
 ### 3. For Docker Deployment
 
@@ -42,7 +43,16 @@ Update the `docker/.env` file:
 # LLM Configuration
 LLM_ENABLED=true
 LLM_API_URL=https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent
-LLM_API_TOKEN=your_api_key_here
+GEMINI_API_KEY=your_api_key_here
+```
+
+### 4. For Local Deployment
+
+Set the environment variable before running:
+
+```bash
+export GEMINI_API_KEY="your_api_key_here"
+python main.py
 ```
 
 ## Supported APIs
@@ -76,9 +86,10 @@ The current implementation uses the **Google Gemini API** format. The API reques
 
 1. **Data Collection**: The system collects Chinese news as usual
 2. **LLM Processing**: If LLM is enabled, it sends the news to the LLM API with instructions to:
-   - Translate Chinese to English
-   - Summarize the main topics
-   - Present it in a friendly, conversational style
+   - Translate Chinese to English accurately
+   - Summarize the main topics and key developments
+   - Stay factual and objective
+   - Present in a professional, readable format
 3. **Notification**: The translated/summarized English text is sent to all configured notification platforms
 
 ## Example Output
@@ -95,13 +106,11 @@ You'll receive:
 📰 Daily Summary
 🕐 2025-11-26 14:30:00
 
-Hey! Here's what's trending today 📰
+Summary of 2 news items:
 
-🤖 AI & ChatGPT are making waves:
-- ChatGPT-5 just officially launched (Baidu Hot Search)
-- AI chip stocks are soaring today (Toutiao)
-
-Pretty exciting stuff in the tech world! The ChatGPT release is getting a lot of attention, and it's also driving up AI-related stocks.
+AI & ChatGPT (2 items):
+- ChatGPT-5 has been officially released (Baidu Hot Search)
+- AI chip concept stocks are surging (Toutiao)
 ```
 
 ## Troubleshooting

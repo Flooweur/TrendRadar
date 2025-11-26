@@ -5,8 +5,8 @@
 A complete LLM integration system that automatically:
 - **Translates** Chinese news headlines into English
 - **Summarizes** related topics together
-- **Reformulates** content in a friendly, conversational style
-- **Sends** natural English messages instead of Chinese aggregations
+- **Reformulates** content in a factual, professional style
+- **Sends** clear English summaries instead of Chinese aggregations
 
 ## 📝 Files Modified
 
@@ -43,14 +43,14 @@ A complete LLM integration system that automatically:
 - ✅ Supports: Feishu, DingTalk, WeWork, Telegram, ntfy, Bark
 - ✅ Email continues using HTML format
 
-### 4. Conversational AI Prompt
+### 4. Professional AI Prompt
 The LLM is instructed to:
-- Translate Chinese to English
-- Summarize main topics and trends
-- Use casual, conversational style
-- Group related news together
-- Add emojis for engagement
-- Present as a friendly message, not a formal report
+- Translate Chinese to English accurately
+- Summarize main topics and key developments
+- Stay factual and objective (no opinions)
+- Group related news together by topic
+- Use professional but readable language
+- Present as a clear summary report
 
 ## 🎨 Example Transformation
 
@@ -68,23 +68,21 @@ The LLM is instructed to:
   2. [今日头条] AI芯片概念股暴涨
 ```
 
-### Output (English, conversational):
+### Output (English, factual):
 ```
 📰 Daily Summary
 🕐 2025-11-26 14:30:00
 
-Hey! Here's what's making waves today 📱
+Summary of 5 news items:
 
-🚗 Tesla & Elon Musk are all over the news:
-Tesla just announced price cuts across their entire lineup (Weibo), 
-and Elon's hinting at a new affordable EV coming soon (Douyin). 
-Plus, their Shanghai factory hit record production numbers (Zhihu).
+Tesla & Elon Musk (3 items):
+- Tesla announces price reduction promotion across all models (Weibo)
+- Elon Musk states plans to launch affordable electric vehicle (Douyin)
+- Tesla Shanghai factory achieves record production capacity (Zhihu)
 
-🤖 Big AI news:
-ChatGPT-5 officially launched! (Baidu Hot Search) 
-And the announcement sent AI chip stocks soaring (Toutiao).
-
-Pretty exciting day in tech and auto! 🚀
+AI & ChatGPT (2 items):
+- ChatGPT-5 officially released (Baidu Hot Search)
+- AI chip concept stocks surge (Toutiao)
 ```
 
 ## 🔧 Technical Implementation
@@ -145,19 +143,20 @@ notification:
   llm:
     enabled: false  # Set to true to enable
     api_url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
-    api_token: "YOUR_API_KEY"
 ```
+
+**Note**: API key comes from `GEMINI_API_KEY` environment variable, NOT from config file (for security).
 
 ### GitHub Actions Secrets
 - `LLM_ENABLED`: "true"
 - `LLM_API_URL`: Full Gemini API URL
-- `LLM_API_TOKEN`: Your API key
+- `GEMINI_API_KEY`: Your Google Gemini API key
 
 ### Docker Environment
 ```bash
 LLM_ENABLED=true
 LLM_API_URL=https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent
-LLM_API_TOKEN=your_api_key
+GEMINI_API_KEY=your_api_key
 ```
 
 ## ✅ Testing Status

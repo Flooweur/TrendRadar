@@ -202,7 +202,8 @@ def load_config():
     config["LLM_ENABLED"] = os.environ.get("LLM_ENABLED", "").strip().lower() in ("true", "1") \
         if os.environ.get("LLM_ENABLED", "").strip() else llm_config.get("enabled", False)
     config["LLM_API_URL"] = os.environ.get("LLM_API_URL", "").strip() or llm_config.get("api_url", "")
-    config["LLM_API_TOKEN"] = os.environ.get("LLM_API_TOKEN", "").strip() or llm_config.get("api_token", "")
+    # API key comes from GitHub secret GEMINI_API_KEY
+    config["LLM_API_TOKEN"] = os.environ.get("GEMINI_API_KEY", "").strip()
 
     # Bark配置
     config["BARK_URL"] = os.environ.get("BARK_URL", "").strip() or webhooks.get(
@@ -3421,21 +3422,21 @@ def translate_and_summarize_with_llm(report_data: Dict, report_type: str) -> Opt
         chinese_text = "\n".join(chinese_content)
         
         # 构建提示词
-        system_instruction = """You are a friendly news summarizer. Your task is to:
-1. Translate Chinese news into English
-2. Summarize the main topics and trends
-3. Present it in a casual, conversational style - as if you're telling a friend about the latest news
-4. Keep it concise but informative
-5. Group related news together when possible
-6. Use emojis occasionally to make it more engaging
+        system_instruction = """You are a professional news summarizer. Your task is to:
+1. Translate Chinese news headlines into clear, accurate English
+2. Summarize the main topics and key developments
+3. Stay factual and objective - no opinions or commentary
+4. Keep it concise and informative
+5. Group related news together by topic
+6. Use professional but readable language
 
-Format your response as a friendly message, not as a formal report. Start with a brief overview, then summarize the key topics."""
+Format your response as a summary report. Start with a brief overview, then present the key topics with their relevant news items."""
 
         user_prompt = f"""Here are the latest Chinese news headlines grouped by keywords:
 
 {chinese_text}
 
-Please translate and summarize this into English in a friendly, conversational way. Make it feel like you're messaging a friend about the latest news highlights."""
+Please translate and summarize this into English. Keep it factual and objective, presenting the key news developments clearly and concisely."""
 
         # 构建API请求（Google Gemini格式）
         request_body = {

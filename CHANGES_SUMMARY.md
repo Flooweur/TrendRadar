@@ -14,20 +14,22 @@ Added LLM (Large Language Model) integration to automatically translate Chinese 
 llm:
   enabled: false # 是否启用LLM翻译和摘要功能
   api_url: "" # LLM API地址
-  api_token: "" # LLM API密钥
 ```
+
+**Note**: API key is NOT stored in config for security - it comes from the `GEMINI_API_KEY` environment variable.
 
 ### 2. `main.py`
 **Changes**: 
-- Added LLM configuration loading in `load_config()` function (lines ~200-205)
+- Added LLM configuration loading in `load_config()` function (lines ~200-206)
   - `LLM_ENABLED`: Boolean to enable/disable feature
   - `LLM_API_URL`: API endpoint URL
-  - `LLM_API_TOKEN`: API authentication token
+  - `LLM_API_TOKEN`: Loaded from `GEMINI_API_KEY` environment variable
 
 - Added new function `translate_and_summarize_with_llm()` (lines ~3373-3497)
   - Extracts Chinese news from report data
   - Formats it for LLM processing
   - Sends API request using Google Gemini format
+  - Uses professional, factual prompt (not conversational)
   - Returns translated English summary
 
 - Modified `send_to_notifications()` function (lines ~3533-3606)
@@ -49,7 +51,7 @@ llm:
 ```yaml
 LLM_ENABLED: ${{ secrets.LLM_ENABLED }}
 LLM_API_URL: ${{ secrets.LLM_API_URL }}
-LLM_API_TOKEN: ${{ secrets.LLM_API_TOKEN }}
+GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 ```
 
 ### 4. `docker/.env`
@@ -59,7 +61,7 @@ LLM_API_TOKEN: ${{ secrets.LLM_API_TOKEN }}
 # LLM翻译和摘要配置
 LLM_ENABLED=
 LLM_API_URL=
-LLM_API_TOKEN=
+GEMINI_API_KEY=
 ```
 
 ## New Files Created
@@ -80,25 +82,32 @@ Summary of all changes made
 
 ### Quick Setup
 
-1. **Enable the feature in `config/config.yaml`:**
+1. **Get a Google Gemini API key:**
+   - Visit: https://makersuite.google.com/app/apikey
+   - Create an API key
+   - Copy the key (looks like: `AIzaSy...`)
+
+2. **For GitHub Actions users (Recommended):**
+   - Add three secrets to your repository:
+     - `LLM_ENABLED`: `true`
+     - `LLM_API_URL`: `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent`
+     - `GEMINI_API_KEY`: Your API key from step 1
+
+3. **Enable in `config/config.yaml`:**
    ```yaml
    notification:
      llm:
        enabled: true
        api_url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
-       api_token: "YOUR_GOOGLE_GEMINI_API_KEY"
    ```
 
-2. **Get a Google Gemini API key:**
-   - Visit: https://makersuite.google.com/app/apikey
-   - Create an API key
-   - Copy and paste it into the config
-
-3. **For GitHub Actions users:**
-   - Add three secrets: `LLM_ENABLED`, `LLM_API_URL`, `LLM_API_TOKEN`
-
 4. **For Docker users:**
-   - Update the `docker/.env` file with the same values
+   - Update `docker/.env`:
+     ```bash
+     LLM_ENABLED=true
+     LLM_API_URL=https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent
+     GEMINI_API_KEY=your_api_key_here
+     ```
 
 ## API Request Format
 
@@ -163,12 +172,9 @@ The code has been syntax-checked and compiles successfully with Python 3.
 📰 Daily Summary
 🕐 2025-11-26 14:30:00
 
-Hey! Here's what's buzzing today 📰
+Summary of 2 news items:
 
-🤖 AI & ChatGPT News:
-ChatGPT-5 just dropped! It's officially launched according to Baidu Hot Search. 
-Meanwhile, AI chip stocks are having a moment - they're soaring today based on 
-reports from Toutiao.
-
-Pretty exciting day in tech! 🚀
+AI & ChatGPT (2 items):
+- ChatGPT-5 has been officially released (Baidu Hot Search)
+- AI chip concept stocks are surging (Toutiao)
 ```

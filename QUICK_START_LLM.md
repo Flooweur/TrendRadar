@@ -13,21 +13,7 @@ Transform your Chinese news notifications into friendly English summaries!
 
 ## Step 2: Enable the Feature (3 minutes)
 
-### Option A: Using config.yaml (Local/Docker)
-
-Open `config/config.yaml` and update the LLM section:
-
-```yaml
-notification:
-  # ... other settings ...
-  
-  llm:
-    enabled: true  # Change from false to true
-    api_url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
-    api_token: "AIzaSy..."  # Paste your API key here
-```
-
-### Option B: Using GitHub Actions
+### Option A: Using GitHub Actions (Recommended)
 
 Add these three secrets to your repository:
 
@@ -38,16 +24,34 @@ Add these three secrets to your repository:
 |------|-------|
 | `LLM_ENABLED` | `true` |
 | `LLM_API_URL` | `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent` |
-| `LLM_API_TOKEN` | `AIzaSy...` (your API key) |
+| `GEMINI_API_KEY` | `AIzaSy...` (your API key from Step 1) |
 
-### Option C: Using Docker
+### Option B: Using Docker
 
 Edit `docker/.env`:
 
 ```bash
 LLM_ENABLED=true
 LLM_API_URL=https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent
-LLM_API_TOKEN=AIzaSy...
+GEMINI_API_KEY=AIzaSy...
+```
+
+### Option C: Using config.yaml (Local)
+
+1. Open `config/config.yaml` and update:
+
+```yaml
+notification:
+  llm:
+    enabled: true
+    api_url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+```
+
+2. Set the environment variable before running:
+
+```bash
+export GEMINI_API_KEY="AIzaSy..."
+python main.py
 ```
 
 Then restart your Docker container:
@@ -78,13 +82,11 @@ docker restart trend-radar
 📰 Hourly Update
 🕐 2025-11-26 14:00:00
 
-Hey! Quick update on what's trending 📱
+Summary of 3 news items:
 
-🚗 Tesla & Elon Musk making moves:
-Tesla just kicked off a price cut promotion (Weibo), 
-and Elon announced plans for a new product (Douyin).
-
-Looks like Tesla's trying to boost sales! 💰
+Tesla & Elon Musk (2 items):
+- Tesla has launched a price reduction promotion campaign (Weibo)
+- Elon Musk announced new product plans (Douyin)
 ```
 
 ## Troubleshooting
