@@ -202,6 +202,15 @@ def load_config():
         "bark_url", ""
     )
 
+    # Slack配置
+    config["SLACK_WEBHOOK_URL"] = os.environ.get("SLACK_WEBHOOK_URL", "").strip() or webhooks.get(
+        "slack_webhook_url", ""
+    )
+
+    # LLM配置（用于消息改革）
+    config["LLM_API_URL"] = os.environ.get("LLM_API_URL", "").strip()
+    config["LLM_API_KEY"] = os.environ.get("LLM_API_KEY", "").strip()
+
     # 输出配置来源信息
     notification_sources = []
     if config["FEISHU_WEBHOOK_URL"]:
@@ -246,6 +255,95 @@ print(f"监控平台数量: {len(CONFIG['PLATFORMS'])}")
 
 
 # === 工具函数 ===
+def reformulate_with_llm(chinese_text: str) -> str:
+    """
+    使用LLM API将中文新闻内容翻译并改写成自然的英文表达
+    
+    Args:
+        chinese_text: 中文新闻内容
+        
+    Returns:
+        改写后的英文内容，如果API调用失败则返回原文本
+    """
+    llm_api_url = CONFIG.get("LLM_API_URL", "").strip()
+    llm_api_key = CONFIG.get("LLM_API_KEY", "").strip()
+    
+    # 如果未配置LLM，直接返回原文本
+    if not llm_api_url or not llm_api_key:
+        return chinese_text
+    
+    try:
+        # 构建提示词
+        prompt = f"""You are a news translator and reformulator. Translate the following Chinese news aggregation into natural, objective English. 
+Make it sound like someone is telling you about the latest news in a conversational but factual way. 
+Stay objective and factual, but make it natural and easy to read.
+
+Chinese news content:
+{chinese_text}
+
+Please reformulate this in English, maintaining all the structure, formatting (like markdown), emojis, and numbers, but translate the Chinese text to natural English."""
+        
+        # 准备请求
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {llm_api_key}"
+        }
+        
+        # 尝试OpenAI兼容格式
+        payload = {
+            "model": "gpt-3.5-turbo",  # 默认模型，大多数API兼容
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.3,  # 较低温度以保持客观性
+            "max_tokens": 4000
+        }
+        
+        # 发送请求
+        response = requests.post(
+            llm_api_url,
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            # 尝试多种可能的响应格式
+            if "choices" in result and len(result["choices"]) > 0:
+                reformulated_text = result["choices"][0].get("message", {}).get("content", "")
+                if reformulated_text:
+                    print("LLM reformulation successful")
+                    return reformulated_text
+            elif "text" in result:
+                reformulated_text = result["text"]
+                if reformulated_text:
+                    print("LLM reformulation successful")
+                    return reformulated_text
+            elif "content" in result:
+                reformulated_text = result["content"]
+                if reformulated_text:
+                    print("LLM reformulation successful")
+                    return reformulated_text
+        
+        # 如果响应格式不匹配，尝试其他格式
+        print(f"LLM API returned unexpected format, status: {response.status_code}")
+        return chinese_text
+        
+    except requests.exceptions.Timeout:
+        print("LLM API request timeout, using original text")
+        return chinese_text
+    except requests.exceptions.RequestException as e:
+        print(f"LLM API request failed: {e}, using original text")
+        return chinese_text
+    except Exception as e:
+        print(f"LLM reformulation error: {e}, using original text")
+        return chinese_text
+
+
 def get_beijing_time():
     """获取北京时间"""
     return datetime.now(pytz.timezone("Asia/Shanghai"))
@@ -3519,6 +3617,9 @@ def send_to_feishu(
         mode=mode,
     )
 
+    # 使用LLM改写成英文
+    batches = [reformulate_with_llm(batch) for batch in batches]
+
     print(f"飞书消息分为 {len(batches)} 批次发送 [{report_type}]")
 
     # 逐批发送
@@ -3608,6 +3709,9 @@ def send_to_dingtalk(
         max_bytes=CONFIG.get("DINGTALK_BATCH_SIZE", 20000),
         mode=mode,
     )
+
+    # 使用LLM改写成英文
+    batches = [reformulate_with_llm(batch) for batch in batches]
 
     print(f"钉钉消息分为 {len(batches)} 批次发送 [{report_type}]")
 
@@ -3737,6 +3841,9 @@ def send_to_wework(
     # 获取分批内容
     batches = split_content_into_batches(report_data, "wework", update_info, mode=mode)
 
+    # 使用LLM改写成英文
+    batches = [reformulate_with_llm(batch) for batch in batches]
+
     print(f"企业微信消息分为 {len(batches)} 批次发送 [{report_type}]")
 
     # 逐批发送
@@ -3815,6 +3922,9 @@ def send_to_telegram(
         report_data, "telegram", update_info, mode=mode
     )
 
+    # 使用LLM改写成英文
+    batches = [reformulate_with_llm(batch) for batch in batches]
+
     print(f"Telegram消息分为 {len(batches)} 批次发送 [{report_type}]")
 
     # 逐批发送
@@ -3883,6 +3993,9 @@ def send_to_email(
         print(f"使用HTML文件: {html_file_path}")
         with open(html_file_path, "r", encoding="utf-8") as f:
             html_content = f.read()
+        
+        # 使用LLM改写成英文
+        html_content = reformulate_with_llm(html_content)
 
         domain = from_email.split("@")[-1].lower()
 
@@ -4052,6 +4165,9 @@ def send_to_ntfy(
         report_data, "ntfy", update_info, max_bytes=3800, mode=mode
     )
 
+    # 使用LLM改写成英文
+    batches = [reformulate_with_llm(batch) for batch in batches]
+
     total_batches = len(batches)
     print(f"ntfy消息分为 {total_batches} 批次发送 [{report_type}]")
 
@@ -4172,6 +4288,9 @@ def send_to_bark(
     batches = split_content_into_batches(
         report_data, "wework", update_info, max_bytes=CONFIG["BARK_BATCH_SIZE"], mode=mode
     )
+
+    # 使用LLM改写成英文
+    batches = [reformulate_with_llm(batch) for batch in batches]
 
     total_batches = len(batches)
     print(f"Bark消息分为 {total_batches} 批次发送 [{report_type}]")
