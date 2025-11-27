@@ -283,23 +283,23 @@ Chinese news content:
 
 Please reformulate this in English, maintaining all the structure, formatting (like markdown), emojis, and numbers, but translate the Chinese text to natural English."""
         
-        # 准备请求
+        # 准备请求 - Gemini API格式
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {llm_api_key}"
+            "x-goog-api-key": llm_api_key
         }
         
-        # 尝试OpenAI兼容格式
+        # Gemini API格式
         payload = {
-            "model": "gpt-3.5-turbo",  # 默认模型，大多数API兼容
-            "messages": [
+            "contents": [
                 {
-                    "role": "user",
-                    "content": prompt
+                    "parts": [
+                        {
+                            "text": prompt
+                        }
+                    ]
                 }
-            ],
-            "temperature": 0.3,  # 较低温度以保持客观性
-            "max_tokens": 4000
+            ]
         }
         
         # 发送请求
@@ -312,22 +312,16 @@ Please reformulate this in English, maintaining all the structure, formatting (l
         
         if response.status_code == 200:
             result = response.json()
-            # 尝试多种可能的响应格式
-            if "choices" in result and len(result["choices"]) > 0:
-                reformulated_text = result["choices"][0].get("message", {}).get("content", "")
-                if reformulated_text:
-                    print("LLM reformulation successful")
-                    return reformulated_text
-            elif "text" in result:
-                reformulated_text = result["text"]
-                if reformulated_text:
-                    print("LLM reformulation successful")
-                    return reformulated_text
-            elif "content" in result:
-                reformulated_text = result["content"]
-                if reformulated_text:
-                    print("LLM reformulation successful")
-                    return reformulated_text
+            # 解析Gemini API响应格式
+            if "candidates" in result and len(result["candidates"]) > 0:
+                candidate = result["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    parts = candidate["content"]["parts"]
+                    if len(parts) > 0 and "text" in parts[0]:
+                        reformulated_text = parts[0]["text"]
+                        if reformulated_text:
+                            print("LLM reformulation successful")
+                            return reformulated_text
         
         # 如果响应格式不匹配，尝试其他格式
         print(f"LLM API returned unexpected format, status: {response.status_code}")
