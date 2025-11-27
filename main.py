@@ -274,9 +274,12 @@ def reformulate_with_llm(chinese_text: str) -> str:
     
     try:
         # 构建提示词
-        prompt = f"""You are a news translator and reformulator. Translate the following Chinese news aggregation into natural, objective English. 
+        prompt = f"""You are a competent news translator and reformulator. Translate the following Chinese news aggregation into natural, objective English. 
 Make it sound like someone is telling you about the latest news in a conversational but factual way. 
+The first line should be akin to a headline that makes me want to read the rest of the news.
+Remove any hyperlinks present in the text.
 Stay objective and factual, but make it natural and easy to read.
+After each news item, add a " -> Implications of the news item".
 
 Chinese news content:
 {chinese_text}
@@ -4128,7 +4131,7 @@ def send_to_ntfy(
         "当日汇总": "Daily Summary",
         "当前榜单汇总": "Current Ranking",
         "增量更新": "Incremental Update",
-        "实时增量": "Realtime Incremental", 
+        "🔥Real-time Incremental": "Realtime Incremental", 
         "实时当前榜单": "Realtime Current Ranking",  
     }
     report_type_en = report_type_en_map.get(report_type, "News Report") 
@@ -4387,7 +4390,7 @@ class NewsAnalyzer:
         "incremental": {
             "mode_name": "增量模式",
             "description": "增量模式（只关注新增新闻，无新增时不推送）",
-            "realtime_report_type": "实时增量",
+            "realtime_report_type": "🔥Real-time Incremental",
             "summary_report_type": "当日汇总",
             "should_send_realtime": True,
             "should_generate_summary": True,
