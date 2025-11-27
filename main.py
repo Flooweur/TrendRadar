@@ -3458,7 +3458,7 @@ def split_content_into_batches(
 def send_to_notifications(
     stats: List[Dict],
     failed_ids: Optional[List] = None,
-    report_type: str = "当日汇总",
+    report_type: str = "🔥News Report",
     new_titles: Optional[Dict] = None,
     id_to_name: Optional[Dict] = None,
     update_info: Optional[Dict] = None,
@@ -4303,7 +4303,7 @@ def send_to_bark(
 
         # 添加批次标识（使用正确的批次编号）
         if total_batches > 1:
-            batch_header = f"[第 {actual_batch_num}/{total_batches} 批次]\n\n"
+            batch_header = f"[Batch {actual_batch_num}/{total_batches}]\n\n"
             batch_content = batch_header + batch_content
 
         # 清理 markdown 语法（Bark 不支持 markdown）
