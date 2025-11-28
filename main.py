@@ -553,6 +553,68 @@ class PushRecordManager:
 
 
 # === 数据获取 ===
+def parse_gdelt_csv(input_dir: str = "input") -> List[Dict]:
+    """
+    解析GDELT CSV文件
+    
+    Args:
+        input_dir: 输入目录路径
+        
+    Returns:
+        新闻列表，每个新闻包含url字段
+    """
+    input_path = Path(input_dir)
+    if not input_path.exists():
+        raise FileNotFoundError(f"输入目录不存在: {input_dir}")
+    
+    # 查找CSV文件（应该只有一个）
+    csv_files = list(input_path.glob("*.CSV")) + list(input_path.glob("*.csv"))
+    
+    if not csv_files:
+        raise FileNotFoundError(f"在 {input_dir} 目录中未找到CSV文件")
+    
+    if len(csv_files) > 1:
+        print(f"警告: 找到多个CSV文件，将使用最新的: {csv_files[-1]}")
+    
+    csv_file = sorted(csv_files)[-1]
+    print(f"正在解析GDELT CSV文件: {csv_file}")
+    
+    news_list = []
+    
+    try:
+        with open(csv_file, "r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # 按制表符分割
+                columns = line.split("\t")
+                
+                # URL在最后一列
+                if len(columns) >= 61:
+                    url = columns[60].strip()  # 最后一列（索引60）
+                    if url and url.startswith(("http://", "https://")):
+                        # 用户要求：将链接作为文章的主体文本
+                        # 使用URL本身作为标题，这样在通知中会显示为链接
+                        # 为了确保每条CSV行都是独立的新闻，使用行号作为唯一标识
+                        # 但标题只显示URL（用户要求）
+                        title = url
+                        
+                        news_list.append({
+                            "title": title,
+                            "url": url,
+                            "mobileUrl": url,  # 使用相同URL
+                            "line_num": line_num,  # 保存行号用于区分相同URL的不同行
+                        })
+    
+    except Exception as e:
+        raise RuntimeError(f"解析CSV文件失败: {e}")
+    
+    print(f"成功解析 {len(news_list)} 条新闻")
+    return news_list
+
+
 class DataFetcher:
     """数据获取器"""
 
@@ -566,57 +628,13 @@ class DataFetcher:
         min_retry_wait: int = 3,
         max_retry_wait: int = 5,
     ) -> Tuple[Optional[str], str, str]:
-        """获取指定ID数据，支持重试"""
+        """获取指定ID数据，支持重试（已废弃，保留以兼容）"""
+        # 此方法已不再使用，但保留以保持接口兼容性
         if isinstance(id_info, tuple):
             id_value, alias = id_info
         else:
             id_value = id_info
             alias = id_value
-
-        url = f"https://newsnow.busiyi.world/api/s?id={id_value}&latest"
-
-        proxies = None
-        if self.proxy_url:
-            proxies = {"http": self.proxy_url, "https": self.proxy_url}
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "Connection": "keep-alive",
-            "Cache-Control": "no-cache",
-        }
-
-        retries = 0
-        while retries <= max_retries:
-            try:
-                response = requests.get(
-                    url, proxies=proxies, headers=headers, timeout=10
-                )
-                response.raise_for_status()
-
-                data_text = response.text
-                data_json = json.loads(data_text)
-
-                status = data_json.get("status", "未知")
-                if status not in ["success", "cache"]:
-                    raise ValueError(f"响应状态异常: {status}")
-
-                status_info = "最新数据" if status == "success" else "缓存数据"
-                print(f"获取 {id_value} 成功（{status_info}）")
-                return data_text, id_value, alias
-
-            except Exception as e:
-                retries += 1
-                if retries <= max_retries:
-                    base_wait = random.uniform(min_retry_wait, max_retry_wait)
-                    additional_wait = (retries - 1) * random.uniform(1, 2)
-                    wait_time = base_wait + additional_wait
-                    print(f"请求 {id_value} 失败: {e}. {wait_time:.2f}秒后重试...")
-                    time.sleep(wait_time)
-                else:
-                    print(f"请求 {id_value} 失败: {e}")
-                    return None, id_value, alias
         return None, id_value, alias
 
     def crawl_websites(
@@ -624,55 +642,73 @@ class DataFetcher:
         ids_list: List[Union[str, Tuple[str, str]]],
         request_interval: int = CONFIG["REQUEST_INTERVAL"],
     ) -> Tuple[Dict, Dict, List]:
-        """爬取多个网站数据"""
+        """从GDELT CSV文件读取新闻数据"""
         results = {}
         id_to_name = {}
         failed_ids = []
 
-        for i, id_info in enumerate(ids_list):
-            if isinstance(id_info, tuple):
-                id_value, name = id_info
+        try:
+            # 解析GDELT CSV文件
+            news_list = parse_gdelt_csv()
+            
+            if not news_list:
+                print("警告: CSV文件中没有有效的新闻数据")
+                return results, id_to_name, failed_ids
+            
+            # 使用第一个平台ID作为数据源ID（如果没有配置平台，使用默认值）
+            if ids_list:
+                if isinstance(ids_list[0], tuple):
+                    source_id, source_name = ids_list[0]
+                else:
+                    source_id = ids_list[0]
+                    source_name = source_id
             else:
-                id_value = id_info
-                name = id_value
-
-            id_to_name[id_value] = name
-            response, _, _ = self.fetch_data(id_info)
-
-            if response:
-                try:
-                    data = json.loads(response)
-                    results[id_value] = {}
-                    for index, item in enumerate(data.get("items", []), 1):
-                        title = item.get("title")
-                        # 跳过无效标题（None、float、空字符串）
-                        if title is None or isinstance(title, float) or not str(title).strip():
-                            continue
-                        title = str(title).strip()
-                        url = item.get("url", "")
-                        mobile_url = item.get("mobileUrl", "")
-
-                        if title in results[id_value]:
-                            results[id_value][title]["ranks"].append(index)
-                        else:
-                            results[id_value][title] = {
-                                "ranks": [index],
-                                "url": url,
-                                "mobileUrl": mobile_url,
-                            }
-                except json.JSONDecodeError:
-                    print(f"解析 {id_value} 响应失败")
-                    failed_ids.append(id_value)
-                except Exception as e:
-                    print(f"处理 {id_value} 数据出错: {e}")
-                    failed_ids.append(id_value)
-            else:
-                failed_ids.append(id_value)
-
-            if i < len(ids_list) - 1:
-                actual_interval = request_interval + random.randint(-10, 20)
-                actual_interval = max(50, actual_interval)
-                time.sleep(actual_interval / 1000)
+                source_id = "gdelt"
+                source_name = "GDELT News"
+            
+            id_to_name[source_id] = source_name
+            results[source_id] = {}
+            
+            # 将每条新闻作为单独的条目，使用索引作为排名
+            # 用户要求：每条CSV行都是独立的新闻，不合并
+            # 由于可能有多行具有相同的URL，我们需要为每个创建一个唯一键
+            url_counter = {}  # 跟踪每个URL出现的次数
+            
+            for index, news in enumerate(news_list, 1):
+                title = news.get("title", "")
+                url = news.get("url", "")
+                mobile_url = news.get("mobileUrl", "")
+                line_num = news.get("line_num", index)
+                
+                # 跳过无效标题
+                if not title or not url:
+                    continue
+                
+                # 为相同URL创建唯一键（使用行号），但标题仍然只显示URL
+                # 这样每条新闻都是独立的，但显示时只显示URL
+                unique_key = f"{url}__LINE_{line_num}"
+                
+                # 跟踪URL出现次数（用于统计）
+                if url not in url_counter:
+                    url_counter[url] = 0
+                url_counter[url] += 1
+                
+                # 每条新闻都是独立的，即使URL相同也不合并
+                results[source_id][unique_key] = {
+                    "ranks": [index],
+                    "url": url,
+                    "mobileUrl": mobile_url,
+                    "title": title,  # 保存原始标题（URL）用于显示
+                }
+            
+            print(f"成功解析 {len(results[source_id])} 条唯一新闻")
+            
+        except FileNotFoundError as e:
+            print(f"错误: {e}")
+            failed_ids = [id_info[0] if isinstance(id_info, tuple) else id_info for id_info in ids_list]
+        except Exception as e:
+            print(f"处理GDELT CSV数据出错: {e}")
+            failed_ids = [id_info[0] if isinstance(id_info, tuple) else id_info for id_info in ids_list]
 
         print(f"成功: {list(results.keys())}, 失败: {failed_ids}")
         return results, id_to_name, failed_ids
@@ -695,16 +731,19 @@ def save_titles_to_file(results: Dict, id_to_name: Dict, failed_ids: List) -> st
             # 按排名排序标题
             sorted_titles = []
             for title, info in title_data.items():
-                cleaned_title = clean_title(title)
+                # 使用存储的title（URL）如果存在，否则使用key作为title
                 if isinstance(info, dict):
+                    display_title = info.get("title", title)
                     ranks = info.get("ranks", [])
                     url = info.get("url", "")
                     mobile_url = info.get("mobileUrl", "")
                 else:
+                    display_title = title
                     ranks = info if isinstance(info, list) else []
                     url = ""
                     mobile_url = ""
 
+                cleaned_title = clean_title(display_title)
                 rank = ranks[0] if ranks else 1
                 sorted_titles.append((rank, cleaned_title, url, mobile_url))
 
@@ -925,6 +964,7 @@ def process_source_data(
             ranks = data.get("ranks", [])
             url = data.get("url", "")
             mobile_url = data.get("mobileUrl", "")
+            stored_title = data.get("title", title)  # 获取存储的title
 
             title_info[source_id][title] = {
                 "first_time": time_info,
@@ -933,18 +973,21 @@ def process_source_data(
                 "ranks": ranks,
                 "url": url,
                 "mobileUrl": mobile_url,
+                "title": stored_title,  # 保存存储的title
             }
     else:
         for title, data in title_data.items():
             ranks = data.get("ranks", [])
             url = data.get("url", "")
             mobile_url = data.get("mobileUrl", "")
+            stored_title = data.get("title", title)  # 获取存储的title
 
             if title not in all_results[source_id]:
                 all_results[source_id][title] = {
                     "ranks": ranks,
                     "url": url,
                     "mobileUrl": mobile_url,
+                    "title": stored_title,  # 保存存储的title
                 }
                 title_info[source_id][title] = {
                     "first_time": time_info,
@@ -953,12 +996,14 @@ def process_source_data(
                     "ranks": ranks,
                     "url": url,
                     "mobileUrl": mobile_url,
+                    "title": stored_title,  # 保存存储的title
                 }
             else:
                 existing_data = all_results[source_id][title]
                 existing_ranks = existing_data.get("ranks", [])
                 existing_url = existing_data.get("url", "")
                 existing_mobile_url = existing_data.get("mobileUrl", "")
+                existing_title = existing_data.get("title", title)
 
                 merged_ranks = existing_ranks.copy()
                 for rank in ranks:
@@ -969,6 +1014,7 @@ def process_source_data(
                     "ranks": merged_ranks,
                     "url": existing_url or url,
                     "mobileUrl": existing_mobile_url or mobile_url,
+                    "title": existing_title or stored_title,  # 保留已有的title
                 }
 
                 title_info[source_id][title]["last_time"] = time_info
@@ -978,6 +1024,8 @@ def process_source_data(
                     title_info[source_id][title]["url"] = url
                 if not title_info[source_id][title].get("mobileUrl"):
                     title_info[source_id][title]["mobileUrl"] = mobile_url
+                if not title_info[source_id][title].get("title"):
+                    title_info[source_id][title]["title"] = stored_title
 
 
 def detect_latest_new_titles(current_platform_ids: Optional[List[str]] = None) -> Dict:
@@ -1346,6 +1394,10 @@ def count_word_frequency(
                         ranks = info["ranks"]
                     url = info.get("url", source_url)
                     mobile_url = info.get("mobileUrl", source_mobile_url)
+                    # 使用存储的title如果存在
+                    stored_title = info.get("title")
+                    if stored_title:
+                        display_title = stored_title
                 elif (
                     title_info
                     and source_id in title_info
@@ -1359,6 +1411,10 @@ def count_word_frequency(
                         ranks = info["ranks"]
                     url = info.get("url", source_url)
                     mobile_url = info.get("mobileUrl", source_mobile_url)
+                    # 使用存储的title如果存在
+                    stored_title = info.get("title")
+                    if stored_title:
+                        display_title = stored_title
 
                 if not ranks:
                     ranks = [99]
@@ -1377,9 +1433,14 @@ def count_word_frequency(
                     new_titles_for_source = new_titles[source_id]
                     is_new = title in new_titles_for_source
 
+                # 使用存储的title（URL）如果存在，否则使用key作为title
+                # 如果之前从title_info中获取了stored_title，使用它；否则从title_data获取
+                if 'display_title' not in locals():
+                    display_title = title_data.get("title", title)
+                
                 word_stats[group_key]["titles"][source_id].append(
                     {
-                        "title": title,
+                        "title": display_title,
                         "source_name": source_name,
                         "first_time": first_time,
                         "last_time": last_time,
